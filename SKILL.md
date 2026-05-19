@@ -74,10 +74,11 @@ function findCorosMcp() {
   // 候选路径列表（按优先级）
   const candidates = [
     // npm 全局安装
+    path.join(os.homedir(), 'node_modules/coros-mcp/dist/cli.js'),
     path.join(os.homedir(), '.workbuddy/.tmp/coros-mcp-local/node_modules/coros-mcp/dist/cli.js'),
+    path.join(os.homedir(), '.workbuddy/.tmp/node_modules/coros-mcp/dist/cli.js'),
     // 工作区安装
     path.join(process.cwd(), '.tmp/coros-mcp-local/node_modules/coros-mcp/dist/cli.js'),
-    // 向上查找
   ];
 
   for (const p of candidates) {
@@ -87,8 +88,10 @@ function findCorosMcp() {
   // 向上遍历查找
   let dir = os.homedir();
   for (let i = 0; i < 4; i++) {
-    const tryPath = path.join(dir, '.workbuddy/.tmp/coros-mcp-local/node_modules/coros-mcp/dist/cli.js');
-    if (fs.existsSync(tryPath)) return { cli: tryPath, baseDir: path.dirname(path.dirname(path.dirname(tryPath))) };
+    for (const sub of ['.workbuddy/.tmp/coros-mcp-local', '.workbuddy/.tmp']) {
+      const tryPath = path.join(dir, sub, 'node_modules/coros-mcp/dist/cli.js');
+      if (fs.existsSync(tryPath)) return { cli: tryPath, baseDir: path.join(dir, sub) };
+    }
     dir = path.dirname(dir);
   }
 
@@ -169,9 +172,9 @@ function call(tool, args) {
 ### 2.3 常用调用示例
 
 ```javascript
-// 近30天户外跑记录
+// 近30天户外跑记录（日期按实际查询范围替换）
 call('querySportRecords', {
-  startDate: '20260501', endDate: '20260519',
+  startDate: 'YYYYMMDD', endDate: 'YYYYMMDD',
   sportTypeCodes: [100],
   limit: 100,
   timezone: 'Asia/Shanghai'
@@ -179,7 +182,7 @@ call('querySportRecords', {
 
 // 单次运动汇总数据（含最佳1km配速，分析必用）
 call('getActivityDetail', {
-  labelId: '477563623938490572',
+  labelId: '{LABEL_ID}',
   sportType: 100
 })
 
@@ -202,8 +205,9 @@ call('queryRecoveryStatus', {})
 call('queryHrvAssessment', { days: 7, timezone: 'Asia/Shanghai' })
 
 // 睡眠数据（注意日期错位规则，见 3.3）
+// 查"N晚"睡眠 → endDate 设为 N+1
 call('querySleepData', {
-  startDate: '20260518', endDate: '20260519',
+  startDate: 'YYYYMMDD', endDate: 'YYYYMMDD',
   days: 2,
   timezone: 'Asia/Shanghai'
 })
@@ -230,10 +234,10 @@ call('querySleepData', {
 
 | API 返回日期 | 实际入睡日期 |
 |------------|------------|
-| 5/19 的记录 | **5/18 晚** 的睡眠 |
-| 5/N 的记录 | **5/(N-1) 晚** 的睡眠 |
+| M/D 的记录 | **(M/(D-1)) 晚** 的睡眠 |
+| N 日的记录 | **(N-1) 日** 的睡眠 |
 
-**正确查询**：查"5/18 晚"睡眠 → endDate 设为 `20260519`（+1 天）
+**正确查询**：查"N晚"睡眠 → endDate 设为 N+1（如查 5/18 晚 → endDate = YYYYMMDD 格式的 5/19）
 
 ### 3.3 通用排查
 
@@ -259,8 +263,6 @@ load      = call('queryTrainingLoadAssessment', { days: 30 })
 hrv       = call('queryHrvAssessment', { days: 7, timezone: 'Asia/Shanghai' })
 ```
 
-### 4.2 关键参数提取
-
 从 `queryFitnessAssessmentOverview` 提取：
 
 | 字段 | 含义 | 用途 |
@@ -272,7 +274,92 @@ hrv       = call('queryHrvAssessment', { days: 7, timezone: 'Asia/Shanghai' })
 | thresholdHeartRate | 阈值心率 | 强度参考 |
 | anaerobicThresholdHeartRate | 乳酸阈心率 | 间歇/MP 上限 |
 
-### 4.3 配速区间识别
+### 4.2 天气数据采集流程
+
+**每次分析关键训练（MP跑/长距离/间歇）时，必须采集训练当天的天气数据。**
+
+COROS MCP 工具不提供天气数据，但可通过以下流程获取：
+
+1. **从 `querySportRecords` 提取坐标**：每条活动记录包含 `Start Coordinates: 纬度, 经度`（示例: 纬度, 经度）
+2. **用坐标查询开源天气 API**（推荐 Open-Meteo Archive API，免费、无需API Key）：
+   ```
+   https://archive-api.open-meteo.com/v1/archive?
+     latitude={lat}&longitude={lon}&
+     start_date={YYYY-MM-DD}&end_date={YYYY-MM-DD}&
+     hourly=temperature_2m,relative_humidity_2m,precipitation,weather_code&
+     timezone=Asia/Shanghai
+   ```
+3. **WMO 天气代码→中文映射**：
+   ```python
+   wmo = {0:"晴",1:"晴间多云",2:"多云",3:"阴",
+          45:"雾",51:"小毛毛雨",53:"中毛毛雨",61:"小雨",
+          63:"中雨",80:"阵雨",81:"中阵雨",95:"雷暴"}
+   ```
+4. **训练时段取数**：按训练时长估算时段（如 30K≈5-9am，20K≈5-8am，10K≈5-7am）
+5. **若无坐标可用**：询问用户训练大致位置，用城市名拼坐标查询
+
+**分析原则**：
+- **疲劳 > 天气 > 训练意图**：温湿度影响表现是合理推断，但同温湿度的两场训练表现可能截然不同（主因通常是累积疲劳而非天气变化）。关键课（MP/长距离）前的1-3天跑量和休息日安排是更重要的变量。
+- 同时考虑累积疲劳、训练意图、睡眠因素进行综合解读
+- 不将单次表现差异全部归因于天气——优先核查：①前3天跑量 ②睡眠质量 ③训练意图
+
+### 4.3 温湿度与不适指数（DI）量化分析
+
+> 本节提供温湿度量化分析框架，基于夏季晨间训练数据推导。其他气候区域需根据本地条件重新校准阈值。
+
+#### 不适指数（Discomfort Index）公式
+
+```
+DI = T - 0.55 × (1 - 0.01 × H) × (T - 14.5)
+其中 T = 温度(°C), H = 相对湿度(%)
+```
+
+DI 越低越舒适，>=21 时即使短距离也会明显感知。
+
+#### DI 参考阈值（基于实际训练数据）
+
+| DI 范围 | 影响级别 | 典型表现 |
+|---------|---------|---------|
+| **< 17** | ✅ 最佳区 | 15-17°C + 60-80%RH → 正常发挥，可冲刺Best |
+| **17 - 19** | ⚠️ 轻度影响 | 配速惩罚约+5~10s/km |
+| **> 19** | 🔴 明显影响 | 配速惩罚可感知，但训练意图可部分抵消（如MP跑时意志可覆盖天气劣势） |
+
+#### 温度量化影响（粗估公式）
+
+```
+基准温度: 17°C（晨间低温基准线）
+  ≤18°C: 基准表现区
+  20°C:  配速惩罚 +5s/km vs 17°C
+  22°C:  配速惩罚 +10s/km vs 17°C（训练意图强时可忽略此惩罚）
+```
+
+#### 湿度量化影响（粗估公式）
+
+```
+同温下每+10%RH ≈ +3-5s/km 配速惩罚（中度可信，6-10场数据推导）
+湿度 60-70% ≈ 最舒适，80-95% ≈ 可感知但非致命
+```
+
+#### 关键分析原则：疲劳 > 天气
+
+典型例子（两场同温湿度 30K 对比）：
+- 训练 A（前1天休息）→ 均配速较佳，完成质量高
+- 训练 B（前3天连续跑~30km累积疲劳）→ 均配速断崖下降
+
+**结论**：纯温湿度解释力 < 10%，疲劳累积解释力 > 80%。**查天气前，先查前3天跑量。**
+
+#### 数据获取流程
+
+参见 4.2 天气数据采集流程。在分析报告中按以下方式呈现：
+
+```
+## 温湿度影响量化
+- 本次训练 DI = XX.X（温度 XX°C / 湿度 XX%）
+- vs 基准 DI 16.5 → 预估配速影响 ±X s/km
+- 建议下次类似条件时：注意前X天跑量控制
+```
+
+### 4.4 配速区间识别
 
 > ⚠️ 由于 `getActivityDetail` 不返回逐km分段，配速区间主要从运动记录的汇总均配速、均HR 和 fitness 阈值参数推断。若用户提供分段截图，可按实际数据精细识别。
 
@@ -285,7 +372,7 @@ hrv       = call('queryHrvAssessment', { days: 7, timezone: 'Asia/Shanghai' })
 | **乳酸阈值（T）** | LT心率 ±3 | fitness 数据 |
 | **间歇（I）** | LT心率+5~15 | 运动中最高均HR段（汇总口径参考） |
 
-### 4.4 历史周跑量统计
+### 4.5 历史周跑量统计
 
 ```javascript
 // 查询近8-12周数据
@@ -316,16 +403,43 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 >
 > 报告末尾询问用户：「需要保存为本地 HTML 文件吗？」若用户确认，再生成并交付 HTML 文件。
 
-### 5.2 结构概览
+### 5.2 结构概览（完整版）
+
+```
+## 用户基础信息（置顶）
+【含近30天天气变化概述，见 5.3】
+
+一、当日训练 + 睡眠分析（含温湿度影响）
+  - 当日天气：温度 XX°C / 湿度 XX% / DI=X.X
+  - 温湿度量化：DI 区间 → 预估配速影响 ±X s/km
+  - 结合前3天跑量、睡眠质量综合解读
+
+二、当周整体评估（含各次训练温湿度分布）
+  - 当周训练日程及对应 DI 一览
+  - 同周内不同天气条件下的表现差异对比
+  - 周跑量 + 周均 DI 对整体疲劳的叠加影响
+
+三、当月整体评估（含月度天气变化轨迹）
+  - 近30天温度/湿度/DI 变化曲线概述
+  - 不同 DI 区间内的训练次数分布
+  - 高温高湿日 vs 低温舒适日的配速偏差量化
+
+四、优化建议
+五、课表建议
+```
+
+### 5.2b 结构概览（月度回顾版）
 
 ```
 ## 用户基础信息（置顶）
 
-一、当日训练 + 睡眠分析
-二、当周整体评估
-三、当月整体评估
-四、优化建议
-五、课表建议
+一、月度训练流水 + 天气数据
+二、温度分层统计（<18°C / 18-20°C / >20°C）
+三、关键对比分析（同温异湿、同距离不同表现）
+四、不适指数（DI）vs 配速偏差表
+五、量化推导结论
+六、周跑量推演
+七、优化建议
 ```
 
 ### 5.3 用户基础信息表
@@ -351,6 +465,9 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 | 训练 | ShortTerm Load | XX | 近7天 |
 | 训练 | LongTerm Load | XX | 近28天 |
 | 训练 | 训练负荷比 | X.XX | ST/LT，建议 1.0–1.3 |
+| 环境 | 近30天天气变化概述 | 温度 XX~XX°C / RH XX~XX% / DI XX~XX | 见 4.2～4.3 采集与量化方法 |
+| 环境 | DI 分布 | 最佳DI日: X天 / 轻度影响日: X天 / 明显影响日: X天 | DI<17 / 17-19 / >19 |
+| 环境 | 预估天气对配速综合影响 | ±X s/km（月均） | 高温高湿日累计惩罚 |
 | 配速 | E跑 配速 | X:XX/km | HR ≤ LT×0.78 |
 | 配速 | MP 配速 | X:XX/km | 阈值配速 |
 | 配速 | T跑 配速 | X:XX/km | 乳酸阈值配速 |
@@ -370,19 +487,25 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 **每次训练展示可用汇总数据：**
 
 ```
-🏃 Outdoor Run — 2026-05-18 MP跑（6.66km / 31:48）
+🏃 Outdoor Run — YYYY-MM-DD 训练类型（XX.XXkm / XX:XX）
 ========================================
-均配速: 4:46/km | 调整后: 4:46/km | 最佳1km: 4:32/km
-均心率: 160 bpm | 最高心率: 173 bpm
-均步频: 177 spm | 均步幅: 1.18 m
-海拔升降: +4m / -8m | 热量: 487 kcal
-训练负荷: 99 | 表现评价: Best
+均配速: X:XX/km | 调整后: X:XX/km | 最佳1km: X:XX/km
+均心率: XXX bpm | 最高心率: XXX bpm
+均步频: XXX spm | 均步幅: X.XX m
+海拔升降: +Xm / -Xm | 热量: XXX kcal
+训练负荷: XXX | 表现评价: Best/Normal/Hard
 
 ▶ 均配速解读：
-  - 均配速 4:46/km vs 高驰阈值 4:23/km → 差 23秒/km（系统性偏慢）
-  - 最佳1km 4:32/km 是当天最快单公里，可视为该配速下的能力上限参考
-  - HR 160 bpm 对应 MP 心率区间，体感强度合理
-  - 步频 177 spm 偏高，属于轻量级跑法特征
+  - 均配速 X:XX/km vs 高驰阈值 X:XX/km → 差 XX秒/km
+  - 最佳1km X:XX/km 是当天最快单公里，可视为该配速下的能力上限
+  - HR XXX bpm 对应的心率区间分析
+  - 步频/步幅特征分析
+
+▶ 温湿度影响量化（见 4.2~4.3）：
+  - 训练日天气：温度 XX°C / 湿度 XX% / DI=X.X（见 DI 阈值表）
+  - 本次 DI vs 基准 DI 16.5 → 预估配速影响 ±X s/km
+  - 若 DI>19 且配速达标 → 训练意图覆盖了天气劣势，说明能力强
+  - 若 DI 正常但配速明显下降 → 优先查前3天跑量和睡眠（疲劳因素）
 ```
 
 ### 5.5 最佳1km配速（Best Kilometer）
