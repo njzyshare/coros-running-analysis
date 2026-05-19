@@ -26,6 +26,8 @@ npm install coros-mcp
 
 ### 1.2 mcp.json 配置
 
+> ⚠️ **cache-root 一致性**：CLI 默认缓存路径为 `~/.coros-mcp-skill-gateway-ts`。如果指定了 `--cache-root`，则登录和后续所有调用都需要使用同一个路径，否则会找不到 token。
+
 在 AI 工具的配置文件中添加 MCP 服务器。以下是不同工具的配置格式：
 
 #### WorkBuddy (codebuddy) 格式
@@ -102,12 +104,24 @@ if (found) {
 
 ### 1.4 认证配置
 
-coros-mcp 需要 COROS 账号认证。首次使用时会引导登录：
+coros-mcp 需要 COROS 账号认证。每次重装或切换缓存路径后需要重新登录：
 
-```javascript
-// 初始化认证
-call('authenticate', { /* 如需要 token */ })
+```bash
+# 第一步：启动登录，获取浏览器 URL
+node CLI_PATH login
+
+# 第二步：用户浏览器打开 URL 完成认证
+
+# 第三步：确认登录状态
+node CLI_PATH login-status
+# → "no token" 则尚未完成
+
+# 第四步：完成登录
+node CLI_PATH login-finish
+# → "login ok" 即成功
 ```
+
+也可以使用 `login-start` / `login-finish` 分步完成。
 
 ---
 
@@ -143,8 +157,8 @@ function call(tool, args) {
 | 工具 | 用途 | 必填参数 |
 |------|------|---------|
 | `querySportRecords` | 运动记录列表 | startDate, endDate, sportTypeCodes, limit, timezone |
-| `getActivityDetail` | 单次运动详情（含分段） | labelId, sportType |
-| `analyzeActivityDetail` | 教练式分析 | labelId, sportType, focus |
+| `getActivityDetail` | 单次运动汇总（含最佳1km配速） | labelId, sportType |
+| `analyzeActivityDetail` | 教练式文字诊断（无分段） | labelId, sportType, focus |
 | `querySleepData` | 睡眠数据 | startDate, endDate, days, timezone |
 | `queryRecoveryStatus` | 恢复状态 | — |
 | `queryTrainingLoadAssessment` | 训练负荷 | days |
@@ -163,7 +177,7 @@ call('querySportRecords', {
   timezone: 'Asia/Shanghai'
 })
 
-// 单次运动分段数据（分析必用）
+// 单次运动汇总数据（含最佳1km配速，分析必用）
 call('getActivityDetail', {
   labelId: '477563623938490572',
   sportType: 100
@@ -260,14 +274,16 @@ hrv       = call('queryHrvAssessment', { days: 7, timezone: 'Asia/Shanghai' })
 
 ### 4.3 配速区间识别
 
+> ⚠️ 由于 `getActivityDetail` 不返回逐km分段，配速区间主要从运动记录的汇总均配速、均HR 和 fitness 阈值参数推断。若用户提供分段截图，可按实际数据精细识别。
+
 通过分段数据分析，归纳用户实际配速-心率对应关系：
 
 | 类型 | 心率 | 配速来源 |
 |------|------|---------|
-| **轻松跑（E）** | ≤ LT心率×0.78 | 分段中 HR 最低且稳定持续3km+ |
+| **轻松跑（E）** | ≤ LT心率×0.78 | 汇总均速中偏低且HR稳定（如有截图参考则按实际） |
 | **MP** | 阈值心率 ±5 | thresholdPace |
 | **乳酸阈值（T）** | LT心率 ±3 | fitness 数据 |
-| **间歇（I）** | LT心率+5~15 | 分段中 HR 最高段 |
+| **间歇（I）** | LT心率+5~15 | 运动中最高均HR段（汇总口径参考） |
 
 ### 4.4 历史周跑量统计
 
@@ -294,7 +310,13 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 
 ## 五、分析报告模板
 
-### 5.1 结构概览
+### 5.1 输出行为约定
+
+> **默认：对话框直接输出 Markdown 格式报告，不写本地文件。**
+>
+> 报告末尾询问用户：「需要保存为本地 HTML 文件吗？」若用户确认，再生成并交付 HTML 文件。
+
+### 5.2 结构概览
 
 ```
 ## 用户基础信息（置顶）
@@ -306,7 +328,7 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 五、课表建议
 ```
 
-### 5.2 用户基础信息表
+### 5.3 用户基础信息表
 
 ```
 ## 用户基础信息
@@ -341,25 +363,40 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 > **默认目标说明**：本报告以高驰预估全马（X:XX:XX）/ 半马（X:XX:XX）为默认目标进行评估。
 ```
 
-### 5.3 分段拆解格式
+### 5.4 单次训练分析格式
 
-**分析 MP 跑/间歇/长距离时必须展示分段数据：**
+> ⚠️ **重要限制**：`getActivityDetail` **不返回逐公里分段数据**，仅返回汇总口径（均配速、最佳1km配速、均/最高心率、均步频、训练负荷等）。`analyzeActivityDetail` 同样只做文字诊断，无分段。以下格式基于实际可获取的数据。
+
+**每次训练展示可用汇总数据：**
 
 ```
-第1段  0-1km   配速 5:32  HR 128  [热身段]
-第2段  1-2km   配速 5:18  HR 145
-...
-第8段  7-8km   配速 4:38  HR 162  [主课段]
-...
-第13段 12-13km 配速 4:42  HR 160  [主课段]
-第14段 13-13.14km 配速 4:55  HR 155  [冷身段]
+🏃 Outdoor Run — 2026-05-18 MP跑（6.66km / 31:48）
+========================================
+均配速: 4:46/km | 调整后: 4:46/km | 最佳1km: 4:32/km
+均心率: 160 bpm | 最高心率: 173 bpm
+均步频: 177 spm | 均步幅: 1.18 m
+海拔升降: +4m / -8m | 热量: 487 kcal
+训练负荷: 99 | 表现评价: Best
 
-主课有效段：
-  均值配速 4:40/km | 均值 HR 161
-  配速稳定性：前5km 4:41 → 后5km 4:39（略微负分段 ✅）
+▶ 均配速解读：
+  - 均配速 4:46/km vs 高驰阈值 4:23/km → 差 23秒/km（系统性偏慢）
+  - 最佳1km 4:32/km 是当天最快单公里，可视为该配速下的能力上限参考
+  - HR 160 bpm 对应 MP 心率区间，体感强度合理
+  - 步频 177 spm 偏高，属于轻量级跑法特征
 ```
 
-### 5.4 四维度评分
+### 5.5 最佳1km配速（Best Kilometer）
+
+`getActivityDetail` 返回的 **Best Kilometer** 是整次训练中最快的那 1 公里配速，作为均值配速的补充：
+
+| 指标 | 说明 | 分析价值 |
+|------|------|---------|
+| 均配速 | 整体均值，受慢段拖累 | 反映"综合完成能力" |
+| 最佳1km | 最快单公里 | 反映"在当前体感下的极限片段"，可对比阈值配速差距 |
+
+**分析意义**：最佳1km配速往往比均配速快 10–30 秒/km，两者差距越小说明配速越均匀。若最佳1km接近阈值配速，说明能力足够，只是均速受限于后程降速。
+
+### 5.6 四维度评分
 
 | 维度 | 门槛（默认目标） | 评分 |
 |------|---------------|------|
