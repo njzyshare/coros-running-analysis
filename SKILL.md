@@ -399,9 +399,106 @@ records = call('querySportRecords', { startDate: START, endDate: END, sportTypeC
 
 ### 5.1 输出行为约定
 
-> **默认：对话框直接输出 Markdown 格式报告，不写本地文件。**
+> **默认：对话框直接输出分析结论，不写本地文件。**
 >
-> 报告末尾询问用户：「需要保存为本地 HTML 文件吗？」若用户确认，再生成并交付 HTML 文件。
+> **保存文件时不得重新拉取数据和分析。** 会话中已有的分析结论（包括所有已生成的文字、表格、数据）就是最终素材，直接将它们整理成符合规范的 HTML 文件即可。
+>
+> 报告末尾询问用户：「需要保存为本地 HTML 文件吗？」若用户确认，走 5.1.1 流程。
+
+#### 5.1.1 文件输出流程
+
+**核心规则**
+1. **不往 C 盘写文件。** 所有分析结果文件统一输出到用户指定的目录。
+2. **不重新拉取数据。** 直接复用当前会话已有的分析结论和数据，整理成文件，不得调用 COROS MCP 或 Open-Meteo API 重新获取。
+3. **保存 HTML 格式。** HTML 在手机、电脑、平板上均能直接打开查看，兼容性最好。包含 CSS 内联样式，不依赖外链。
+4. 如果当前对话中**尚未产生分析结论**（例如用户直接说"把上次的报告存一下"），则先简要说明需要先跑分析才能保存，询问用户是否要先分析。
+
+**默认目录**：工作区根目录下的 `高驰数据分析\` 文件夹
+
+**首次运行流程（必需）：**
+
+```javascript
+// 获取工作区路径
+const workspaceDir = process.cwd();  // 当前工作区根目录
+const defaultOutputDir = path.join(workspaceDir, '高驰数据分析');
+```
+
+```
+1. 用户确认需要保存文件时，先问：
+   "分析报告将保存在工作区下的 高驰数据分析 目录（{workspace}\高驰数据分析），是否确认？"
+   
+2. 用户可能回答：
+   a. 确认（直接使用默认目录）
+   b. 自定义（提供其他路径，如 E:\MY_RUN_DATA）
+   c. 拒绝保存（当前不保存，后续仍可询问）
+   
+3. 若用户选择自定义，允许输入任一绝对路径，如：
+   - D:\跑步数据\
+   - E:\CD Light\运动分析\
+   
+4. 将用户确认的目录路径保存到工作区 memory（如 MEMORY.md），格式为：
+   - 默认路径：`coros_output_dir: {workspace}\高驰数据分析`
+   - 自定义路径：`coros_output_dir: D:\跑步数据`
+   
+5. 当使用自定义目录时，在报告末尾注明：
+   "报告已保存至：{用户自定义目录}"
+```
+
+**目录不存在时的处理**：
+```javascript
+const fs = require('fs');
+const path = require('path');
+
+// 使用工作区相对路径
+const outputDir = path.join(process.cwd(), '高驰数据分析');
+
+// 确保目录存在
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  console.log(`已创建目录: ${outputDir}`);
+}
+```
+
+**文件名规范**：
+- 主文件：`运动数据分析报告_YYYYMMDD.html`（HTML 格式，CSS 内联）
+- 可选同步输出：`运动数据分析报告_YYYYMMDD.md`（Markdown 版，非必需）
+- 临时脚本：统一放在输出目录的 `_scripts/` 子目录下，分析完成后询问是否清理
+- 目录结构示例：`{workspace}\高驰数据分析\运动数据分析报告_20260519.html`
+
+**HTML 样式要求**（CSS 内联于 `<head><style>` 中，不依赖外链和 CDN）：
+
+```css
+/* 基础样式 */
+body { font-family: -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f8f9fa; color: #333; line-height: 1.7; }
+h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 10px; }
+h2 { color: #16213e; margin-top: 30px; border-left: 4px solid #0f3460; padding-left: 12px; }
+h3 { color: #0f3460; margin-top: 24px; }
+/* 表格 */
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+th { background: #0f3460; color: white; padding: 10px 12px; text-align: left; }
+td { padding: 8px 12px; border-bottom: 1px solid #dee2e6; }
+tr:nth-child(even) { background: #f1f3f5; }
+/* 引用块 */
+blockquote { border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 0; padding: 12px 16px; }
+/* 代码块 */
+pre { background: #1a1a2e; color: #e4e4e4; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+code { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+/* 评分星级 */
+.star { color: #f0c040; }
+.star-dim { color: #ccc; }
+/* 脚注 */
+.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #dee2e6; font-size: 13px; color: #666; }
+```
+
+**跨会话持久化**：
+- 首次确认的目录应记录到工作区 memory（如 MEMORY.md），格式为：
+  ```
+  ## 高驰数据分析输出目录
+  coros_output_dir: {workspace}\高驰数据分析
+  ```
+- `{workspace}` 为实际工作区根目录路径（可在运行时通过 `process.cwd()` 获取）
+- 后续会话先读取 memory，有记录则直接使用，不再询问
+- 用户可随时要求「更换输出目录」，按首次流程重新确认
 
 ### 5.2 结构概览（完整版）
 
