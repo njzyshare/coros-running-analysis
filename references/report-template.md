@@ -87,7 +87,7 @@ tr:nth-child(even) { background:#f1f3f5; }
 
 ```
 🏃 Outdoor Run — YYYY-MM-DD 训练类型（XX.XXkm / XX:XX）
-均配速: X:XX | 最佳1km: X:XX | 均心率: XXX
+均配速: X:XX | 最快单圈: X:XX | 均心率: XXX
 均步频: XXX | 均步幅: X.XX | 海拔: +X/-X
 训练负荷: XXX | 评价: Best/Normal/Hard
 
@@ -95,14 +95,14 @@ tr:nth-child(even) { background:#f1f3f5; }
 ▶ 温湿度影响量化（见 weather-analysis.md）
 ```
 
-## 五、最佳 1km 分析
+## 五、最快单圈分析
 
 | 指标 | 说明 | 价值 |
 |------|------|------|
 | 均配速 | 整体均值 | 综合完成能力 |
-| 最佳1km | 最快单公里 | 极限片段，可对比阈值差距 |
+| 最快单圈 | 当圈最快配速 | 极限片段，可对比阈值差距 |
 
-最佳1km 比均配速快 10-30s/km，差距越小配速越均匀。
+最快单圈比均配速快 10-30s/km，差距越小配速越均匀。
 
 ## 六、四维度评分
 

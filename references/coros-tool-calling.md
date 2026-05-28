@@ -94,7 +94,7 @@ function call(tool, args) {
 | 工具 | 用途 | 必填参数 |
 |------|------|---------|
 | `querySportRecords` | 运动记录列表 | startDate, endDate, sportTypeCodes, limit, timezone |
-| `getActivityDetail` | 单次运动汇总（含最佳1km配速） | labelId, sportType |
+| `getActivityDetail` | 单次运动汇总（含最快单圈配速） | labelId, sportType |
 | `analyzeActivityDetail` | 教练式文字诊断（无分段） | labelId, sportType, focus |
 | `querySleepData` | 睡眠数据 | startDate, endDate, days, timezone |
 | `queryRecoveryStatus` | 恢复状态 | — |
