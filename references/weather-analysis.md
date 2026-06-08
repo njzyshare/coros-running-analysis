@@ -7,9 +7,50 @@ summary: "天气数据采集、DI 不适指数计算、配速影响量化"
 
 ## 一、天气数据采集
 
-每次分析关键训练（MP跑/长距离/间歇）时，必须采集训练当天的天气数据。
+每次分析关键训练（MP跑/长距离/间歇）时，必须采集训练时段的天气数据。
 
-### 采集流程
+### 采集优先级
+
+```
+优先：高驰网页端自带天气（已授权时）
+       ├── 精确到训练时间段（手表联网获取）
+       ├── 含温度、湿度、天气现象、风速风向
+       └── 由 fetchActivityDetail().weather 返回
+       ↓
+兜底：Open-Meteo Archive API（未授权时）
+       ├── 全天均温/均湿（不如网页端精确）
+       └── 需从 querySportRecords 提取坐标
+```
+
+### 路径A：高驰网页端（优先）
+
+有网页端登录态时，`fetchActivityDetail()` 直接返回：
+
+```json
+{
+  "weather": {
+    "condition": "小雨",
+    "temp": 31,
+    "humidity": 76,
+    "wind": "东风 6"
+  },
+  "startTime": {
+    "raw": "2026年6月4日 晚上 08:21",
+    "period": "晚上"
+  }
+}
+```
+
+**优势：**
+- 温度/湿度来自手表实际记录的传感器数据，比 API 推测更准
+- 精确到训练那个时段，不是全天均值
+- 无需 API Key，无需额外 HTTP 请求
+
+**何时不可用：** 网页端未授权 / 登录态过期 / 该训练无 GPS 坐标
+
+### 路径B：Open-Meteo Archive API（兜底）
+
+网页端不可用时，通过坐标查询：
 
 1. **从 `querySportRecords` 提取坐标**：每条记录包含 `Start Coordinates: 纬度, 经度`
 2. **用坐标查询 Open-Meteo Archive API**（免费、无需 API Key）：
@@ -30,6 +71,8 @@ summary: "天气数据采集、DI 不适指数计算、配速影响量化"
 5. **若无坐标**：询问用户训练地点，用城市名拼坐标查询
 
 ## 二、不适指数（Discomfort Index）
+
+> 有网页端登录态时，DI 使用 `fetchActivityDetail().weather` 的精确温度+湿度计算，而非全天均值。
 
 ### 公式
 

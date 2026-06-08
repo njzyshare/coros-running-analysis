@@ -93,7 +93,7 @@ function call(tool, args) {
 
 | 工具 | 用途 | 必填参数 |
 |------|------|---------|
-| `querySportRecords` | 运动记录列表 | startDate, endDate, sportTypeCodes, limit, timezone |
+| `querySportRecords` | 运动记录列表（**日期不含时间戳**，无法区分晨跑/夜跑/多次，需细化时见 `time-weather-refinement.md`） | startDate, endDate, sportTypeCodes, limit, timezone |
 | `getActivityDetail` | 单次运动汇总（含最快单圈配速） | labelId, sportType |
 | `analyzeActivityDetail` | 教练式文字诊断（无分段） | labelId, sportType, focus |
 | `querySleepData` | 睡眠数据 | startDate, endDate, days, timezone |
@@ -116,3 +116,22 @@ call('queryHrvAssessment', { days:7, timezone:'Asia/Shanghai' })
 // 睡眠数据注意日期错位：查"N晚" → endDate 设为 N+1
 call('querySleepData', { startDate:'YYYYMMDD', endDate:'YYYYMMDD+N', days:2, timezone:'Asia/Shanghai' })
 ```
+
+## 七、网页端兜底（详细计圈数据）
+
+> ⚠️ **MCP "最快单圈" ≠ APP "最快单圈"**（详见 `web-detail-fetcher.md`）。
+> 间歇训练质量分析、需真实"最快计圈"等场景，必须用网页端方案。
+
+**何时启用：**
+- 间歇训练质量评估（400m/800m × N）
+- MCP 数据与 APP 显示明显不一致
+- 任何需要"被标最快的那一圈配速"的场景
+
+**快速调用：**
+```javascript
+const { fetchActivityDetail } = require('{workspace}/高驰数据分析/coros_detail.js');
+const data = await fetchActivityDetail('477786450333565028', '100');
+// data.tables[0] = 计圈表，data.summary = 概要数据
+```
+
+详见 `references/web-detail-fetcher.md`。
