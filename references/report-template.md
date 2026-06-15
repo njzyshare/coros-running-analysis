@@ -80,7 +80,7 @@ tr:nth-child(even) { background:#f1f3f5; }
 | 配速 | T跑 | X:XX/km | 乳酸阈值配速 |
 | 配速 | 间歇 | X:XX/km | LT+5~15 |
 | 配速 | E跑心率上限 | ≤XXX bpm | — |
-| 配速 | MP心率参考 | XXX bpm | 阈值±5 |
+| 配速 | **MP心率（全马）** | **XXX bpm** | **用户实测确认，见个人档案** |
 | 配速 | T跑心率参考 | XXX bpm | LT±3 |
 
 ## 四、单次训练分析格式
