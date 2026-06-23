@@ -2,7 +2,7 @@
  * 高驰网页端活动详情抓取器（headless 后台化）
  *
  * 用途：抓取单次训练完整计圈数据，绕过 MCP"最快1km"口径问题
- * 依赖：playwright（已装到 C:\Users\feijiangbin\.workbuddy\binaries\node\workspace\node_modules）
+ * 依赖：playwright
  * 登录态：.secrets/coros-state/coros_state.json（首次需运行 coros_web_login.js）
  *
  * 所有个人数据（登录态/个人档案/MCP token 备份）统一存放在 .secrets/ 目录，
